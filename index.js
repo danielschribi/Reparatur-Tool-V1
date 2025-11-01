@@ -67,6 +67,7 @@ app.get("/test-create", async (_req, res) => {
   try {
     const parentId = process.env.DRIVE_ROOT_FOLDER_ID || undefined;
     const drive = driveAsOwner();
+    const sheets = sheetsAsOwner();
 
     // 1) Neue Google-Sheet-Datei "name" anlegen
     const created = await drive.files.create({
@@ -78,18 +79,38 @@ app.get("/test-create", async (_req, res) => {
       fields: "id,name"
     });
 
-    // 2) In B3 schreiben
     const spreadsheetId = created.data.id;
-    const sheets = sheetsAsOwner();
-    await sheets.spreadsheets.values.update({
+
+    // 2) Erstes Tabellenblatt in "guguseli" umbenennen
+    const meta = await sheets.spreadsheets.get({
       spreadsheetId,
-      range: "Sheet1!B3",
-      valueInputOption: "RAW",
-      requestBody: { values: [["Hallo Schriibi"]] }
+      fields: "sheets(properties(sheetId,title))",
+    });
+    const sheetId = meta.data.sheets[0].properties.sheetId;
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          updateSheetProperties: {
+            properties: { sheetId, title: "guguseli" },
+            fields: "title"
+          }
+        }]
+      }
     });
 
+    // 3) In B3 schreiben
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "guguseli!B3",
+      valueInputOption: "RAW",
+      requestBody: { values: [["Hallo Schriibi"]] },
+    });
+
+    // 4) Antwort an den Browser
     const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-    res.json({ ok: true, created: created.data, wrote: "B3=Hallo Schriibi", url });
+    res.json({ ok: true, name: "name", sheet: "guguseli", wrote: "B3=Hallo Schriibi", url });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
