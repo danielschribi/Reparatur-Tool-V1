@@ -3,8 +3,8 @@ import { google } from "googleapis";
 
 const app = express();
 
-/** ================== Owner OAuth – einmal von dir verbinden ================== */
-let OWNER_TOKENS = null;
+/** ================== Owner OAuth (einmal von DIR verbinden) ================== */
+let OWNER_TOKENS = null; // Für Produktion später persistent speichern
 
 function getOAuthClient() {
   const id = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -30,6 +30,7 @@ function sheetsAsOwner() {
   return google.sheets({ version: "v4", auth: client });
 }
 
+/** -------------------- OAuth-Routen (einmaliger Connect) -------------------- */
 app.get("/owner/connect", (_req, res) => {
   try {
     const client = getOAuthClient();
@@ -38,8 +39,8 @@ app.get("/owner/connect", (_req, res) => {
       prompt: "consent",
       scope: [
         "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/spreadsheets"
-      ]
+        "https://www.googleapis.com/auth/spreadsheets",
+      ],
     });
     res.redirect(url);
   } catch (e) {
@@ -52,36 +53,35 @@ app.get("/owner/callback", async (req, res) => {
     const client = getOAuthClient();
     const { code } = req.query;
     const { tokens } = await client.getToken(code);
-    OWNER_TOKENS = tokens;
+    OWNER_TOKENS = tokens; // TODO: später sicher persistieren
     res.send(`
       <h2>✅ Owner verbunden!</h2>
-      <p>Jetzt <a href="/test-create" target="_blank">/test-create</a> öffnen, um die Test-Tabelle zu erzeugen.</p>
+      <p>Test jetzt ausführen: <a href="/test-create" target="_blank">/test-create</a></p>
     `);
   } catch (e) {
     res.status(500).send(String(e));
   }
 });
 
-/** =============== Test: neue Tabelle anlegen + B3 beschreiben =============== */
+/** --------- Test: neue Tabelle anlegen, Blatt "guguseli", B3 beschreiben ------ */
 app.get("/test-create", async (_req, res) => {
   try {
     const parentId = process.env.DRIVE_ROOT_FOLDER_ID || undefined;
     const drive = driveAsOwner();
     const sheets = sheetsAsOwner();
 
-    // 1) Neue Google-Sheet-Datei "name" anlegen
+    // 1) Neue Google-Sheet-Datei "name" im Zielordner anlegen
     const created = await drive.files.create({
       requestBody: {
         name: "name",
         mimeType: "application/vnd.google-apps.spreadsheet",
-        parents: parentId ? [parentId] : undefined
+        parents: parentId ? [parentId] : undefined,
       },
-      fields: "id,name"
+      fields: "id,name",
     });
-
     const spreadsheetId = created.data.id;
 
-    // 2) Erstes Tabellenblatt in "guguseli" umbenennen
+    // 2) Erstes Tabellenblatt ermitteln und in "guguseli" umbenennen
     const meta = await sheets.spreadsheets.get({
       spreadsheetId,
       fields: "sheets(properties(sheetId,title))",
@@ -91,16 +91,18 @@ app.get("/test-create", async (_req, res) => {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
-        requests: [{
-          updateSheetProperties: {
-            properties: { sheetId, title: "guguseli" },
-            fields: "title"
-          }
-        }]
-      }
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: { sheetId, title: "guguseli" },
+              fields: "title",
+            },
+          },
+        ],
+      },
     });
 
-    // 3) In B3 schreiben
+    // 3) In Zelle B3 schreiben
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: "guguseli!B3",
@@ -108,15 +110,21 @@ app.get("/test-create", async (_req, res) => {
       requestBody: { values: [["Hallo Schriibi"]] },
     });
 
-    // 4) Antwort an den Browser
+    // 4) Antwort
     const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-    res.json({ ok: true, name: "name", sheet: "guguseli", wrote: "B3=Hallo Schriibi", url });
+    res.json({
+      ok: true,
+      fileName: "name",
+      sheetName: "guguseli",
+      wrote: "B3=Hallo Schriibi",
+      url,
+    });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
 
-/** ============================== Startseite ================================= */
+/** ------------------------------ Startseite --------------------------------- */
 app.get("/", (_req, res) => {
   res.send(`
     <h1>Reparatur-Tool</h1>
@@ -127,5 +135,6 @@ app.get("/", (_req, res) => {
   `);
 });
 
+/** ------------------------------- Serverstart -------------------------------- */
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log("Server running on :" + port));
