@@ -1,1 +1,33 @@
-
+{
+  "name": "reparatur-tool",
+  "version": "1.0.0",
+  "description": "Reparatur-Tool – Node.js App mit Google Drive / Sheets Integration (Userverwaltung, Meldungen, Massnahmen)",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "start:render": "node server/index.js",
+    "postinstall": "npm install multer@^2.0.0 puppeteer@latest"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "googleapis": "^132.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.0",
+    "puppeteer": "latest"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "keywords": [
+    "google-drive",
+    "google-sheets",
+    "render",
+    "express",
+    "userverwaltung",
+    "reparatur-tool"
+  ],
+  "author": "Daniel Schreiber",
+  "license": "MIT"
+}
