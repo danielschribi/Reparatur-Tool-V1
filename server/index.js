@@ -1,22 +1,25 @@
 // server/index.js
-// Express-Server für Reparatur-Tool: Userverwaltung + Menü + Registrations-Flow
+// Reparatur-Tool – Userverwaltung, Registrierung & Menü
+// Läuft auf Render mit Google Drive/Sheets-Integration (OAuth-Owner)
 
 const express = require('express');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 
+// interne Module
 const { login, changePassword, registerUser } = require('./logic.user');
 const { sendWelcomeEmail } = require('./mailer');
 const { htmlToJpeg } = require('./imagegen');
 
-const app = express(); // <-- WICHTIG: app anlegen, bevor Routen definiert werden!
+// ⬇️ WICHTIG: Express-App muss hier definiert werden!
+const app = express();
 
-// --- Middleware / Static ---
+// Middleware & statische Dateien
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/', express.static(path.join(__dirname, '..', 'web')));
 
-// --- (Optional) JWT-Auth-Middleware für geschützte Routen ---
+// --- JWT Auth Middleware (optional für geschützte Bereiche) ---
 function auth(req, res, next) {
   const hdr = req.headers.authorization || '';
   const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
@@ -29,41 +32,53 @@ function auth(req, res, next) {
   }
 }
 
-// --- SESSION / LOGIN ---
+// ==========================================================
+// 🧩 LOGIN
+// ==========================================================
 app.post('/api/login', async (req, res) => {
   try {
     const { identifier, password } = req.body || {};
-    if (!identifier || !password) return res.status(400).json({ error: 'identifier_and_password_required' });
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'Benutzername und Passwort erforderlich' });
+    }
     const out = await login(identifier, password);
-    return res.json(out);
+    res.json(out);
   } catch (e) {
-    return res.status(400).json({ error: e.message || 'login_failed' });
+    res.status(400).json({ error: e.message || 'Login fehlgeschlagen' });
   }
 });
 
+// ==========================================================
+// 🔐 PASSWORT ÄNDERN
+// ==========================================================
 app.post('/api/change-password', async (req, res) => {
   try {
     const { iduser, oldPw, newPw } = req.body || {};
-    if (!iduser || !oldPw || !newPw) return res.status(400).json({ error: 'missing_fields' });
+    if (!iduser || !oldPw || !newPw) {
+      return res.status(400).json({ error: 'Felder unvollständig' });
+    }
     const out = await changePassword(iduser, oldPw, newPw);
-    return res.json(out);
+    res.json(out);
   } catch (e) {
-    return res.status(400).json({ error: e.message || 'change_password_failed' });
+    res.status(400).json({ error: e.message || 'Fehler beim Passwortwechsel' });
   }
 });
 
-// --- REGISTRATION: Formular absenden -> User-Zeile + E-Mail mit JPG ---
+// ==========================================================
+// 📝 REGISTRIERUNG
+// ==========================================================
 app.post('/api/register', async (req, res) => {
   try {
     const payload = req.body || {};
-    // 1) In Sheets speichern, Code generieren (Klartext), ID vergeben
-    const result = await registerUser(payload); // -> { iduser, code }
 
-    // 2) HTML -> JPEG erzeugen (Puppeteer)
+    // 1️⃣ User in Google Sheets anlegen
+    const result = await registerUser(payload); // { iduser, code }
+
+    // 2️⃣ HTML-Ansicht in JPEG konvertieren (Puppeteer)
     const html = renderWelcomeHTML(payload, result.iduser, result.code);
     const jpeg = await htmlToJpeg({ html });
 
-    // 3) Per Gmail senden (An: Owner)
+    // 3️⃣ Per Gmail an den Owner senden
     const attach = [{
       filename: `Anmeldung-${result.iduser}.jpg`,
       mimeType: 'image/jpeg',
@@ -78,16 +93,20 @@ app.post('/api/register', async (req, res) => {
       attachments: attach
     });
 
-    return res.json({ ok: true, iduser: result.iduser });
+    res.json({ ok: true, iduser: result.iduser });
   } catch (e) {
-    return res.status(400).json({ error: e.message || 'registration_failed' });
+    res.status(400).json({ error: e.message || 'Fehler bei der Registrierung' });
   }
 });
 
-// --- HEALTH ---
+// ==========================================================
+// ❤️ HEALTH-CHECK
+// ==========================================================
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// --- Helper: HTML für JPG-Export ---
+// ==========================================================
+// 🧾 HTML-Vorlage für JPEG-Erzeugung
+// ==========================================================
 function renderWelcomeHTML(u, iduser, code) {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -95,7 +114,7 @@ function renderWelcomeHTML(u, iduser, code) {
   h1{margin:0 0 8px 0}
   table{border-collapse:collapse;width:100%}
   td{border:1px solid #ddd;padding:6px;font-size:14px}
-  .code{font-size:24px;font-weight:bold}
+  .code{font-size:24px;font-weight:bold;color:#222}
 </style></head><body>
   <h1>Neue Anmeldung</h1>
   <p><b>ID:</b> ${iduser}</p>
@@ -125,6 +144,8 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-// --- Start Server ---
+// ==========================================================
+// 🚀 START SERVER
+// ==========================================================
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log('Server running on :' + port));
+app.listen(port, () => console.log('✅ Server running on :' + port));
