@@ -1,7 +1,7 @@
 const { sheetsClient } = require('./google');
 const { makeUserId, todayCH } = require('./utils');
 
-const DB_SPREADSHEET_ID = process.env.DB_USER_SHEET_ID || 'db-user'; // <— am besten ENV setzen
+const DB_SPREADSHEET_ID = 'db-user';  // Dateiname oder Titel in Drive
 const SHEET_USERS = 'user';
 const SHEET_EMAILS = 'email';
 const SHEET_ROLLEN = 'rollen';
