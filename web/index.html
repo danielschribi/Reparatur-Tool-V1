@@ -5,29 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reparatur-Tool</title>
 
-  <!-- Tailwind -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-<style>
-  @keyframes avatarBlink {
-    0% { opacity: 1; }
-    50% { opacity: 0.2; }
-    100% { opacity: 1; }
-  }
-  .blink-avatar {
-    animation: avatarBlink 1s step-start infinite;
-  }
-</style>
-  <!-- React & ReactDOM als UMD (globales React/ReactDOM-Objekt) -->
+
+  <!-- React + ReactDOM (UMD) -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 
-  <!-- Babel Standalone: kompiliert JSX im Browser -->
+  <!-- Babel für JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Avatar-Blinken -->
+  <style>
+    @keyframes avatarBlink {
+      0% { opacity: 1; }
+      50% { opacity: 0.2; }
+      100% { opacity: 1; }
+    }
+    .blink-avatar {
+      animation: avatarBlink 1s step-start infinite;
+    }
+  </style>
 </head>
+
 <body class="bg-neutral-50">
   <div id="root"></div>
 
-  <!-- WICHTIG: type="text/babel" (JSX) und kein ES-Import in app.jsx -->
+  <!-- React-App -->
   <script type="text/babel" src="/app.jsx"></script>
 </body>
 </html>
