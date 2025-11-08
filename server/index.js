@@ -84,7 +84,8 @@ app.post('/api/login', async (req, res) => {
         .json({ error: 'Benutzername und Passwort erforderlich' });
     }
     const out = await login(identifier, password);
-    // out ist entweder { needChange, iduser, role, initials } oder { token, role, iduser, initials }
+    // out ist entweder { needChange, iduser, role, initials }
+    // oder { token, role, iduser, initials }
     res.json(out);
   } catch (e) {
     res.status(400).json({ error: e.message || 'Login fehlgeschlagen' });
@@ -107,7 +108,7 @@ app.post('/api/change-password', async (req, res) => {
   }
 });
 
-// ---------- API: User-Daten holen ----------
+// ---------- API: User-Daten holen (für eigenes Profil) ----------
 app.post('/api/user/get', async (req, res) => {
   try {
     const { iduser } = req.body || {};
@@ -124,7 +125,7 @@ app.post('/api/user/get', async (req, res) => {
   }
 });
 
-// ---------- API: User-Daten speichern ----------
+// ---------- API: User-Daten speichern (eigenes Profil) ----------
 app.post('/api/user/save', async (req, res) => {
   try {
     const { iduser, data } = req.body || {};
@@ -163,15 +164,12 @@ app.post('/api/user/save', async (req, res) => {
   }
 });
 
-// ---------- API: Admin – alle User lesen ----------
+// ---------- API: Admin – alle User lesen (inkl. Passwort & Rolle) ----------
 app.get('/api/admin/users', async (req, res) => {
   try {
     const users = await readAllUsers();
-    const safe = users.map((u) => {
-      const { passwort, ...rest } = u;
-      return rest;
-    });
-    res.json({ users: safe });
+    // Hier NICHT passwort entfernen – Admin soll es sehen/bearbeiten können
+    res.json({ users });
   } catch (e) {
     res
       .status(500)
@@ -179,7 +177,7 @@ app.get('/api/admin/users', async (req, res) => {
   }
 });
 
-// ---------- API: Admin – User speichern ----------
+// ---------- API: Admin – User speichern (inkl. Rolle & Passwort) ----------
 app.post('/api/admin/user/save', async (req, res) => {
   try {
     const { iduser, data } = req.body || {};
@@ -187,7 +185,7 @@ app.post('/api/admin/user/save', async (req, res) => {
       return res.status(400).json({ error: 'iduser und data erforderlich' });
     }
 
-    // Felder, die Admin bearbeiten darf (inkl. rolle)
+    // Felder, die Admin bearbeiten darf (inkl. rolle & passwort)
     const allowed = [
       'vorname',
       'nachname',
@@ -195,8 +193,10 @@ app.post('/api/admin/user/save', async (req, res) => {
       'email',
       'rolle',
       'ort',
-      'funktion'
+      'funktion',
+      'passwort'
     ];
+
     const partial = {};
     allowed.forEach((k) => {
       if (Object.prototype.hasOwnProperty.call(data, k)) {
@@ -311,7 +311,7 @@ function renderWelcomeHTML(u, iduser, code) {
 function escapeHtml(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
+    .replace(/</g, '&lt;/g')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
