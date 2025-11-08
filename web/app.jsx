@@ -2,7 +2,7 @@
 const { useState, useEffect, useMemo } = React;
 
 function App() {
-  const [session, setSession] = useState(null); // { iduser, role, token }
+  const [session, setSession] = useState(null); // { iduser, role, token, initials }
   const [view, setView] = useState('home'); // home | login | changePassword | user | meldung
   const [now, setNow] = useState(new Date());
 
@@ -17,15 +17,25 @@ function App() {
   });
   const dateStr = now.toLocaleDateString('de-CH');
 
+  // wird vom Login-Formular aufgerufen
   function handleLoginResult(r) {
+    const initials = r.initials || '';
     if (r.needChange) {
-      setSession({ iduser: r.iduser, role: r.role || 'user', token: null });
-      setView('changePassword');
-    } else {
+      // 4-stelliger Code → Zwang Passwort ändern
       setSession({
         iduser: r.iduser,
         role: r.role || 'user',
-        token: r.token || null
+        token: null,
+        initials
+      });
+      setView('changePassword');
+    } else {
+      // normales Login mit Passwort
+      setSession({
+        iduser: r.iduser,
+        role: r.role || 'user',
+        token: r.token || null,
+        initials
       });
       setView('user');
     }
@@ -47,6 +57,7 @@ function App() {
           session ? setView('meldung') : setView('login')
         }
         session={session}
+        onAvatarClick={() => setView('login')}
       />
 
       <main className="flex-1 p-4">
@@ -86,11 +97,19 @@ function App() {
 }
 
 // ---------- Header / Menü ----------
-function Header({ timeStr, dateStr, onHome, onUser, onNewMeldung, session }) {
+function Header({
+  timeStr,
+  dateStr,
+  onHome,
+  onUser,
+  onNewMeldung,
+  session,
+  onAvatarClick
+}) {
   return (
     <div className="relative h-16 bg-yellow-300 shadow flex items-center px-3">
-      {/* Avatar links – gelbes ? */}
-      <Avatar />
+      {/* Avatar links */}
+      <Avatar session={session} onClick={onAvatarClick} />
 
       {/* Mitte: Uhr + Datum */}
       <div className="absolute left-1/2 -translate-x-1/2 text-center leading-tight">
@@ -123,13 +142,31 @@ function Header({ timeStr, dateStr, onHome, onUser, onNewMeldung, session }) {
   );
 }
 
-function Avatar() {
+// ---------- Avatar-Logik ----------
+function Avatar({ session, onClick }) {
+  const loggedIn = !!session;
+  const initials = (session && session.initials) || '';
+
+  const base =
+    'w-9 h-9 rounded-full flex items-center justify-center shadow mr-2 select-none cursor-pointer';
+
+  let classes, content, title;
+  if (loggedIn) {
+    // angemeldet → grüner Punkt mit weissen Initialen
+    classes = base + ' bg-green-500 text-white font-bold';
+    content = initials || '??';
+    title = `Eingeloggt${initials ? ' (' + initials + ')' : ''}`;
+  } else {
+    // nicht angemeldet → roter Punkt, gelbes blinkendes Fragezeichen
+    classes =
+      base + ' bg-red-500 text-yellow-300 font-extrabold blink-avatar';
+    content = '?';
+    title = 'Nicht eingeloggt – klicken zum Anmelden';
+  }
+
   return (
-    <div
-      className="w-9 h-9 rounded-full bg-yellow-400 text-black font-extrabold flex items-center justify-center shadow mr-2 select-none"
-      title="Avatar"
-    >
-      ?
+    <div className={classes} onClick={onClick} title={title}>
+      {content}
     </div>
   );
 }
@@ -182,6 +219,7 @@ function LoginForm({ onLoginResult }) {
       if (!res.ok || data.error) {
         throw new Error(data.error || 'Login fehlgeschlagen');
       }
+      // Backend liefert: token/needChange, iduser, role, initials
       onLoginResult(data);
     } catch (err) {
       setError(err.message);
@@ -254,7 +292,9 @@ function ChangePasswordForm({ session, onDone, onCancel }) {
       if (!res.ok || data.error) {
         throw new Error(data.error || 'Passwort konnte nicht geändert werden');
       }
-      setInfo('Passwort erfolgreich geändert. Du wirst zum Benutzerprofil weitergeleitet.');
+      setInfo(
+        'Passwort erfolgreich geändert. Du wirst zum Benutzerprofil weitergeleitet.'
+      );
       setTimeout(onDone, 1000);
     } catch (err) {
       setError(err.message);
@@ -390,7 +430,9 @@ function UserForm({ session, onLogout }) {
         {error ? (
           <div className="text-red-600 text-sm">{error}</div>
         ) : (
-          <div className="text-sm text-gray-600">{status || 'Lade Daten…'}</div>
+          <div className="text-sm text-gray-600">
+            {status || 'Lade Daten…'}
+          </div>
         )}
       </div>
     );
