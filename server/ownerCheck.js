@@ -8,15 +8,25 @@ async function checkAccess() {
   const sheets = sheetsClient();
   const rootId = process.env.DRIVE_ROOT_FOLDER_ID;
 
-  if (!rootId) throw new Error('DRIVE_ROOT_FOLDER_ID ist nicht gesetzt.');
+  if (!rootId) {
+    throw new Error('DRIVE_ROOT_FOLDER_ID ist nicht gesetzt.');
+  }
 
-  const result = { rootId, folders: {}, sheets: {}, test: {} };
+  const result = {
+    rootId,
+    folders: {},
+    sheets: {},
+    test: {}
+  };
 
-  // --- 1️⃣ Root-Folder prüfen
-  const rootRes = await drive.files.get({ fileId: rootId, fields: 'id, name' });
+  // 1️⃣ Root-Ordner prüfen
+  const rootRes = await drive.files.get({
+    fileId: rootId,
+    fields: 'id, name'
+  });
   result.folders.root = rootRes.data;
 
-  // --- 2️⃣ Unterordner db suchen
+  // 2️⃣ Unterordner „db“ suchen
   const qFolder = [
     `'${rootId}' in parents`,
     `mimeType='application/vnd.google-apps.folder'`,
@@ -26,17 +36,20 @@ async function checkAccess() {
   const foldersRes = await drive.files.list({
     q: qFolder,
     fields: 'files(id, name)',
-    pageSize: 20
+    pageSize: 50
   });
 
-  const dbFolder = (foldersRes.data.files || []).find(
-    f => f.name.trim().toLowerCase() === 'db'
+  const folders = foldersRes.data.files || [];
+  const dbFolder = folders.find(
+    f => (f.name || '').trim().toLowerCase() === 'db'
   );
 
-  if (!dbFolder) throw new Error('Unterordner "db" nicht gefunden.');
+  if (!dbFolder) {
+    throw new Error('Unterordner "db" nicht gefunden.');
+  }
   result.folders.db = dbFolder;
 
-  // --- 3️⃣ Tabellen in db suchen
+  // 3️⃣ Tabellen (Spreadsheets) in „db“ suchen
   const qSheets = [
     `'${dbFolder.id}' in parents`,
     `mimeType='application/vnd.google-apps.spreadsheet'`,
@@ -46,7 +59,7 @@ async function checkAccess() {
   const sheetsRes = await drive.files.list({
     q: qSheets,
     fields: 'files(id, name)',
-    pageSize: 20
+    pageSize: 50
   });
 
   const allSheets = sheetsRes.data.files || [];
@@ -54,45 +67,68 @@ async function checkAccess() {
 
   const expected = ['db-user', 'db-meldung', 'db-massnahme'];
   for (const name of expected) {
-    const hit = allSheets.find(f => f.name.trim().toLowerCase() === name);
+    const hit = allSheets.find(
+      f => (f.name || '').trim().toLowerCase() === name
+    );
     result.sheets[name] = hit ? hit.id : null;
   }
 
-  // --- 4️⃣ Test: Lesen aus db-user (nur A1)
+  // 4️⃣ Test: Lesen aus db-user (Zelle A1 des Standardblatts)
   if (result.sheets['db-user']) {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: result.sheets['db-user'],
-      range: 'user!A1',
-    });
-    result.test.readCell = res.data.values ? res.data.values[0][0] : '(leer)';
+    try {
+      const readRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: result.sheets['db-user'],
+        range: 'A1' // Kein Blattname -> erstes Blatt, egal wie es heißt
+      });
+      const v =
+        readRes.data.values &&
+        readRes.data.values[0] &&
+        readRes.data.values[0][0];
+      result.test.readCell = v || '(leer)';
+    } catch (e) {
+      result.test.readCell =
+        'Fehler beim Lesen von A1 in db-user: ' + e.message;
+    }
   } else {
-    result.test.readCell = '(db-user fehlt)';
+    result.test.readCell = 'db-user nicht gefunden';
   }
 
-  // --- 5️⃣ Test: Schreiben (neue Test-Tabelle im Root)
-  const testFile = await drive.files.create({
-    requestBody: {
-      name: 'test-write-access',
-      mimeType: 'application/vnd.google-apps.spreadsheet',
-      parents: [rootId],
-    },
-    fields: 'id, name',
-  });
+  // 5️⃣ Test: Schreiben in neue Test-Tabelle im Root (A1)
+  let testFileId = null;
+  try {
+    const createRes = await drive.files.create({
+      requestBody: {
+        name: 'test-write-access',
+        mimeType: 'application/vnd.google-apps.spreadsheet',
+        parents: [rootId]
+      },
+      fields: 'id, name'
+    });
 
-  result.test.createdFile = testFile.data;
+    testFileId = createRes.data.id;
+    result.test.createdFile = createRes.data;
 
-  // Schreibversuch in Zelle A1
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: testFile.data.id,
-    range: 'Sheet1!A1',
-    valueInputOption: 'RAW',
-    requestBody: { values: [['✅ Schreibtest erfolgreich']] },
-  });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: testFileId,
+      range: 'A1', // ohne Blattname
+      valueInputOption: 'RAW',
+      requestBody: { values: [['✅ Schreibtest erfolgreich']] }
+    });
 
-  result.test.writeCell = '✅ Schreibtest erfolgreich';
-
-  // Testdatei optional wieder löschen
-  await drive.files.delete({ fileId: testFile.data.id });
+    result.test.writeCell = '✅ Schreibtest erfolgreich';
+  } catch (e) {
+    result.test.writeCell =
+      'Fehler beim Schreiben von A1 in Test-Spreadsheet: ' + e.message;
+  } finally {
+    // Testdatei wieder löschen, damit Drive sauber bleibt
+    if (testFileId) {
+      try {
+        await drive.files.delete({ fileId: testFileId });
+      } catch (e) {
+        // Ignorieren – ist nur Aufräumaktion
+      }
+    }
+  }
 
   return result;
 }
