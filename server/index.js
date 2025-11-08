@@ -1,17 +1,15 @@
 // server/index.js
-// Reparatur-Tool – Userverwaltung, Registrierung & Menü
-// Läuft auf Render mit Google Drive/Sheets-Integration (OAuth-Owner)
+// Reparatur-Tool – Server (Userverwaltung, Registrierung, Health, Owner-Checks)
 
 const express = require('express');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 
-// interne Module
 const { login, changePassword, registerUser } = require('./logic.user');
 const { sendWelcomeEmail } = require('./mailer');
 const { htmlToJpeg } = require('./imagegen');
+const { checkAccess } = require('./ownerCheck'); // <–– Prüfroutine
 
-// ⬇️ WICHTIG: Express-App muss hier definiert werden!
 const app = express();
 
 // Middleware & statische Dateien
@@ -19,7 +17,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/', express.static(path.join(__dirname, '..', 'web')));
 
-// --- JWT Auth Middleware (optional für geschützte Bereiche) ---
+// (optional) JWT Middleware für geschützte Routen
 function auth(req, res, next) {
   const hdr = req.headers.authorization || '';
   const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
@@ -32,9 +30,7 @@ function auth(req, res, next) {
   }
 }
 
-// ==========================================================
-// 🧩 LOGIN
-// ==========================================================
+// ------------------------ LOGIN ------------------------
 app.post('/api/login', async (req, res) => {
   try {
     const { identifier, password } = req.body || {};
@@ -48,9 +44,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ==========================================================
-// 🔐 PASSWORT ÄNDERN
-// ==========================================================
+// ------------------ PASSWORT ÄNDERN --------------------
 app.post('/api/change-password', async (req, res) => {
   try {
     const { iduser, oldPw, newPw } = req.body || {};
@@ -64,27 +58,24 @@ app.post('/api/change-password', async (req, res) => {
   }
 });
 
-// ==========================================================
-// 📝 REGISTRIERUNG
-// ==========================================================
+// --------------------- REGISTRIERUNG -------------------
 app.post('/api/register', async (req, res) => {
   try {
     const payload = req.body || {};
 
-    // 1️⃣ User in Google Sheets anlegen
+    // 1) User in Sheets anlegen
     const result = await registerUser(payload); // { iduser, code }
 
-    // 2️⃣ HTML-Ansicht in JPEG konvertieren (Puppeteer)
+    // 2) HTML -> JPG (Formularbild)
     const html = renderWelcomeHTML(payload, result.iduser, result.code);
     const jpeg = await htmlToJpeg({ html });
-
-    // 3️⃣ Per Gmail an den Owner senden
     const attach = [{
       filename: `Anmeldung-${result.iduser}.jpg`,
       mimeType: 'image/jpeg',
       data: jpeg.toString('base64')
     }];
 
+    // 3) Mail an dich senden
     const subject = `${payload.vorname} ${payload.nachname} – Herzlich Willkommen dein Code ist ${result.code}`;
     await sendWelcomeEmail({
       to: 'daniel.schreiber@hispeed.ch',
@@ -99,14 +90,22 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// ==========================================================
-// ❤️ HEALTH-CHECK
-// ==========================================================
-app.get('/health', (req, res) => res.json({ ok: true }));
+// ------------------------- HEALTH ----------------------
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
 
-// ==========================================================
-// 🧾 HTML-Vorlage für JPEG-Erzeugung
-// ==========================================================
+// ------------------- OWNER / CHECK-ACCESS --------------
+app.get('/owner/check-access', async (req, res) => {
+  try {
+    const result = await checkAccess();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// --------- Helper: HTML für Registrierungs-JPG ---------
 function renderWelcomeHTML(u, iduser, code) {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -144,8 +143,8 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-// ==========================================================
-// 🚀 START SERVER
-// ==========================================================
+// --------------------- SERVER START --------------------
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log('✅ Server running on :' + port));
+app.listen(port, () => {
+  console.log('✅ Server running on :' + port);
+});
