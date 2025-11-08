@@ -10,6 +10,7 @@ const { login, changePassword, registerUser } = require('./logic.user');
 const { sendWelcomeEmail } = require('./mailer');
 const { htmlToJpeg } = require('./imagegen');
 const { checkAccess } = require('./ownerCheck');
+const { readAllUsers, updateUserById } = require('./sheets');
 
 const app = express();
 
@@ -83,6 +84,7 @@ app.post('/api/login', async (req, res) => {
         .json({ error: 'Benutzername und Passwort erforderlich' });
     }
     const out = await login(identifier, password);
+    // out ist entweder { needChange, iduser, role, initials } oder { token, role, iduser, initials }
     res.json(out);
   } catch (e) {
     res.status(400).json({ error: e.message || 'Login fehlgeschlagen' });
@@ -102,6 +104,62 @@ app.post('/api/change-password', async (req, res) => {
     res
       .status(400)
       .json({ error: e.message || 'Fehler beim Passwortwechsel' });
+  }
+});
+
+// ---------- API: User-Daten holen ----------
+app.post('/api/user/get', async (req, res) => {
+  try {
+    const { iduser } = req.body || {};
+    if (!iduser) return res.status(400).json({ error: 'iduser erforderlich' });
+
+    const users = await readAllUsers();
+    const u = users.find((x) => x.iduser === iduser);
+    if (!u) return res.status(404).json({ error: 'User nicht gefunden' });
+
+    const { passwort, ...safe } = u;
+    res.json({ user: safe });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Fehler beim Laden des Users' });
+  }
+});
+
+// ---------- API: User-Daten speichern ----------
+app.post('/api/user/save', async (req, res) => {
+  try {
+    const { iduser, data } = req.body || {};
+    if (!iduser || !data) {
+      return res.status(400).json({ error: 'iduser und data erforderlich' });
+    }
+
+    const allowed = [
+      'vorname',
+      'nachname',
+      'strasse',
+      'plz',
+      'ort',
+      'email',
+      'handy',
+      'benutzer',
+      'beruf',
+      'arbeitsort',
+      'funktion'
+    ];
+
+    const partial = {};
+    allowed.forEach((k) => {
+      if (Object.prototype.hasOwnProperty.call(data, k)) {
+        partial[k] = data[k];
+      }
+    });
+
+    const updated = await updateUserById(iduser, partial);
+    const { passwort, ...safe } = updated;
+    res.json({ user: safe });
+  } catch (e) {
+    res
+      .status(500)
+      .json({ error: e.message || 'Fehler beim Speichern des Users' });
   }
 });
 
@@ -212,4 +270,3 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log('✅ Server running on :' + port);
 });
-
