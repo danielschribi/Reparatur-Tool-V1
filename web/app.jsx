@@ -17,9 +17,10 @@ function App() {
   });
   const dateStr = now.toLocaleDateString('de-CH');
 
-  // wird vom Login-Formular aufgerufen
   function handleLoginResult(r) {
-    const initials = r.initials || '';
+    // initials kommen vom Backend: erster Buchstabe Vorname + erster Nachname
+    const initials = (r.initials || '').toUpperCase();
+
     if (r.needChange) {
       // 4-stelliger Code → Zwang Passwort ändern
       setSession({
@@ -188,7 +189,7 @@ function Avatar({ session, onClick }) {
 
   let classes, content, title;
   if (loggedIn) {
-    // angemeldet → grüner Punkt mit weissen Initialen
+    // angemeldet → grüner Punkt mit weissen Initialen (Vorname/Nachname)
     classes = base + ' bg-green-500 text-white font-bold';
     content = initials || '??';
     title = `Eingeloggt${initials ? ' (' + initials + ')' : ''} – Klick zum Abmelden`;
