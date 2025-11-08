@@ -3,7 +3,7 @@ const { useState, useEffect, useMemo } = React;
 
 function App() {
   const [session, setSession] = useState(null); // { iduser, role, token, initials }
-  const [view, setView] = useState('home'); // home | login | changePassword | user | userdb | meldung
+  const [view, setView] = useState('home'); // home | login | changePassword | user | userdb | roles | meldung
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -57,7 +57,6 @@ function App() {
   }
 
   function handleLogoutToHome() {
-    // Logout z.B. aus User-Maske → zurück auf Startseite
     setSession(null);
     setView('home');
   }
@@ -82,6 +81,11 @@ function App() {
         onAdminUsers={() =>
           session && session.role === 'admin'
             ? setView('userdb')
+            : setView('login')
+        }
+        onAdminRoles={() =>
+          session && session.role === 'admin'
+            ? setView('roles')
             : setView('login')
         }
       />
@@ -115,10 +119,14 @@ function App() {
           <AdminUserDb session={session} />
         )}
 
+        {view === 'roles' && session && session.role === 'admin' && (
+          <AdminRoles />
+        )}
+
         {view === 'meldung' && session && <NewMeldung />}
 
         {!session &&
-          (view === 'user' || view === 'userdb' || view === 'meldung') && (
+          (view === 'user' || view === 'userdb' || view === 'roles' || view === 'meldung') && (
             <div className="text-center text-sm text-red-600">
               Bitte zuerst anmelden.
             </div>
@@ -136,20 +144,29 @@ function Header({
   onNewMeldung,
   session,
   onAvatarClick,
-  onAdminUsers
+  onAdminUsers,
+  onAdminRoles
 }) {
   return (
     <div className="relative h-16 bg-yellow-300 shadow flex items-center px-3">
-      {/* Links: Avatar + (optional) User-Menü für Admin */}
+      {/* Links: Avatar + Admin-Menüs */}
       <div className="flex items-center gap-2">
         <Avatar session={session} onClick={onAvatarClick} />
         {session && session.role === 'admin' && (
-          <button
-            onClick={onAdminUsers}
-            className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow text-sm"
-          >
-            User
-          </button>
+          <>
+            <button
+              onClick={onAdminUsers}
+              className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow text-sm"
+            >
+              User
+            </button>
+            <button
+              onClick={onAdminRoles}
+              className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow text-sm"
+            >
+              Rolle
+            </button>
+          </>
         )}
       </div>
 
@@ -252,7 +269,6 @@ function LoginForm({ onLoginResult, onLoginFailed }) {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        // ungültige Daten → Login schliessen, kein User
         onLoginFailed && onLoginFailed();
         return;
       }
@@ -395,7 +411,7 @@ function ChangePasswordForm({ session, onDone, onCancel }) {
   );
 }
 
-// ---------- User-Form (Profil) ----------
+// ---------- User-Form (Profil – eigener User) ----------
 function UserForm({ session, onLogout }) {
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState('');
@@ -579,7 +595,7 @@ function LabeledInput({ label, value, onChange }) {
   );
 }
 
-// ---------- Admin-User-Datenbank ----------
+// ---------- Admin-User-Datenbank (inkl. Passwort) ----------
 function AdminUserDb({ session }) {
   const [users, setUsers] = useState(null);
   const [status, setStatus] = useState('');
@@ -669,6 +685,7 @@ function AdminUserDb({ session }) {
               <Th>Nachname</Th>
               <Th>Benutzer</Th>
               <Th>E-Mail</Th>
+              <Th>Passwort</Th>
               <Th>Rolle</Th>
               <Th>Ort</Th>
               <Th>Funktion</Th>
@@ -694,6 +711,10 @@ function AdminUserDb({ session }) {
                 <TdInput
                   value={u.email || ''}
                   onChange={(v) => updateField(u.iduser, 'email', v)}
+                />
+                <TdInput
+                  value={u.passwort || ''}
+                  onChange={(v) => updateField(u.iduser, 'passwort', v)}
                 />
                 <TdInput
                   value={u.rolle || ''}
@@ -724,6 +745,134 @@ function AdminUserDb({ session }) {
   );
 }
 
+// ---------- Admin: Rollen-Ansicht ----------
+function AdminRoles() {
+  const [users, setUsers] = useState(null);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setStatus('Lade Rollen…');
+      setError('');
+      try {
+        const res = await fetch('/api/admin/users');
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || 'Fehler beim Laden');
+        }
+        if (!cancelled) {
+          setUsers(data.users);
+          setStatus('');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e.message);
+          setStatus('');
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function updateRole(iduser, value) {
+    setUsers((prev) =>
+      prev.map((u) => (u.iduser === iduser ? { ...u, rolle: value } : u))
+    );
+  }
+
+  async function handleSaveUser(u) {
+    setStatus('Speichere Rolle für ' + u.iduser + ' …');
+    setError('');
+    try {
+      const res = await fetch('/api/admin/user/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          iduser: u.iduser,
+          data: { rolle: u.rolle }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Fehler beim Speichern');
+      }
+      setStatus('Gespeichert.');
+      setTimeout(() => setStatus(''), 1500);
+    } catch (e) {
+      setError(e.message);
+      setStatus('');
+    }
+  }
+
+  if (!users) {
+    return (
+      <div className="max-w-3xl mx-auto mt-6 bg-white rounded-xl shadow p-4 border border-gray-200 text-sm">
+        {error ? (
+          <div className="text-red-600">{error}</div>
+        ) : (
+          <div className="text-gray-600">{status || 'Lade Rollen…'}</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto mt-6 bg-white rounded-xl shadow p-4 border border-gray-200 text-xs">
+      <h2 className="text-lg font-bold mb-3">Rollen (Admin)</h2>
+      <p className="text-[11px] text-gray-600 mb-2">
+        Rollen können hier pro Benutzer bearbeitet werden. Neue Rollen einfach als Text eintragen – sie stehen dann im System zur Verfügung.
+      </p>
+      {error && <div className="text-red-600 mb-2">{error}</div>}
+      {status && !error && (
+        <div className="text-green-700 mb-2">{status}</div>
+      )}
+
+      <div className="overflow-auto max-h-[420px] border border-gray-200 rounded">
+        <table className="min-w-full border-collapse">
+          <thead className="bg-yellow-100">
+            <tr>
+              <Th>ID</Th>
+              <Th>Benutzer</Th>
+              <Th>Vorname</Th>
+              <Th>Nachname</Th>
+              <Th>Rolle</Th>
+              <Th>Aktion</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.iduser} className="odd:bg-yellow-50 even:bg-white">
+                <Td>{u.iduser}</Td>
+                <Td>{u.benutzer}</Td>
+                <Td>{u.vorname}</Td>
+                <Td>{u.nachname}</Td>
+                <TdInput
+                  value={u.rolle || ''}
+                  onChange={(v) => updateRole(u.iduser, v)}
+                />
+                <Td>
+                  <button
+                    onClick={() => handleSaveUser(u)}
+                    className="px-2 py-1 bg-yellow-300 hover:bg-yellow-400 rounded shadow"
+                  >
+                    Speichern
+                  </button>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Tabellen-Helper ----------
 function Th({ children }) {
   return (
     <th className="px-2 py-1 border border-gray-200 text-left font-semibold">
