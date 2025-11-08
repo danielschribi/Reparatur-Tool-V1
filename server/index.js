@@ -163,6 +163,57 @@ app.post('/api/user/save', async (req, res) => {
   }
 });
 
+// ---------- API: Admin – alle User lesen ----------
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const users = await readAllUsers();
+    const safe = users.map((u) => {
+      const { passwort, ...rest } = u;
+      return rest;
+    });
+    res.json({ users: safe });
+  } catch (e) {
+    res
+      .status(500)
+      .json({ error: e.message || 'Fehler beim Laden der Userliste' });
+  }
+});
+
+// ---------- API: Admin – User speichern ----------
+app.post('/api/admin/user/save', async (req, res) => {
+  try {
+    const { iduser, data } = req.body || {};
+    if (!iduser || !data) {
+      return res.status(400).json({ error: 'iduser und data erforderlich' });
+    }
+
+    // Felder, die Admin bearbeiten darf (inkl. rolle)
+    const allowed = [
+      'vorname',
+      'nachname',
+      'benutzer',
+      'email',
+      'rolle',
+      'ort',
+      'funktion'
+    ];
+    const partial = {};
+    allowed.forEach((k) => {
+      if (Object.prototype.hasOwnProperty.call(data, k)) {
+        partial[k] = data[k];
+      }
+    });
+
+    const updated = await updateUserById(iduser, partial);
+    const { passwort, ...safe } = updated;
+    res.json({ user: safe });
+  } catch (e) {
+    res
+      .status(500)
+      .json({ error: e.message || 'Fehler beim Speichern des Users' });
+  }
+});
+
 // ---------- API: Registrierung ----------
 app.post('/api/register', async (req, res) => {
   try {
