@@ -3,7 +3,7 @@ const { useState, useEffect, useMemo } = React;
 
 function App() {
   const [session, setSession] = useState(null); // { iduser, role, token, initials }
-  const [view, setView] = useState('home'); // home | login | changePassword | user | meldung
+  const [view, setView] = useState('home'); // home | login | changePassword | user | userdb | meldung
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -41,7 +41,28 @@ function App() {
     }
   }
 
-  function handleLogout() {
+  function handleLogoutToLogin() {
+    // Avatar-Klick wenn eingeloggt → abmelden + Login anzeigen
+    setSession(null);
+    setView('login');
+  }
+
+  function handleAvatarClick() {
+    if (session) {
+      handleLogoutToLogin();
+    } else {
+      setView('login');
+    }
+  }
+
+  function handleLogoutToHome() {
+    // Logout z.B. aus User-Maske → zurück auf Startseite
+    setSession(null);
+    setView('home');
+  }
+
+  function handleLoginFailed() {
+    // ungültige Daten → Login schliessen, kein User angemeldet
     setSession(null);
     setView('home');
   }
@@ -52,12 +73,16 @@ function App() {
         timeStr={timeStr}
         dateStr={dateStr}
         onHome={() => setView('home')}
-        onUser={() => (session ? setView('user') : setView('login'))}
         onNewMeldung={() =>
           session ? setView('meldung') : setView('login')
         }
         session={session}
-        onAvatarClick={() => setView('login')}
+        onAvatarClick={handleAvatarClick}
+        onAdminUsers={() =>
+          session && session.role === 'admin'
+            ? setView('userdb')
+            : setView('login')
+        }
       />
 
       <main className="flex-1 p-4">
@@ -66,6 +91,7 @@ function App() {
         {view === 'login' && (
           <LoginForm
             onLoginResult={handleLoginResult}
+            onLoginFailed={handleLoginFailed}
           />
         )}
 
@@ -73,24 +99,29 @@ function App() {
           <ChangePasswordForm
             session={session}
             onDone={() => setView('user')}
-            onCancel={handleLogout}
+            onCancel={handleLogoutToHome}
           />
         )}
 
         {view === 'user' && session && (
           <UserForm
             session={session}
-            onLogout={handleLogout}
+            onLogout={handleLogoutToHome}
           />
+        )}
+
+        {view === 'userdb' && session && session.role === 'admin' && (
+          <AdminUserDb session={session} />
         )}
 
         {view === 'meldung' && session && <NewMeldung />}
 
-        {!session && (view === 'user' || view === 'meldung') && (
-          <div className="text-center text-sm text-red-600">
-            Bitte zuerst anmelden.
-          </div>
-        )}
+        {!session &&
+          (view === 'user' || view === 'userdb' || view === 'meldung') && (
+            <div className="text-center text-sm text-red-600">
+              Bitte zuerst anmelden.
+            </div>
+          )}
       </main>
     </div>
   );
@@ -101,15 +132,25 @@ function Header({
   timeStr,
   dateStr,
   onHome,
-  onUser,
   onNewMeldung,
   session,
-  onAvatarClick
+  onAvatarClick,
+  onAdminUsers
 }) {
   return (
     <div className="relative h-16 bg-yellow-300 shadow flex items-center px-3">
-      {/* Avatar links */}
-      <Avatar session={session} onClick={onAvatarClick} />
+      {/* Links: Avatar + (optional) User-Menü für Admin */}
+      <div className="flex items-center gap-2">
+        <Avatar session={session} onClick={onAvatarClick} />
+        {session && session.role === 'admin' && (
+          <button
+            onClick={onAdminUsers}
+            className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow text-sm"
+          >
+            User
+          </button>
+        )}
+      </div>
 
       {/* Mitte: Uhr + Datum */}
       <div className="absolute left-1/2 -translate-x-1/2 text-center leading-tight">
@@ -117,25 +158,20 @@ function Header({
         <div className="text-sm">{dateStr}</div>
       </div>
 
-      {/* Rechts: Buttons */}
+      {/* Rechts: Neue Meldung + Home */}
       <div className="ml-auto flex items-center gap-2">
         <button
           onClick={onNewMeldung}
-          className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow"
+          className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow text-sm"
         >
           Neue Meldung
         </button>
         <button
-          onClick={onUser}
-          className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow"
-        >
-          User
-        </button>
-        <button
           onClick={onHome}
-          className="w-9 h-9 rounded-full bg-yellow-200 hover:bg-yellow-400 flex items-center justify-center shadow text-lg"
+          className="w-9 h-9 rounded-full bg-yellow-200 hover:bg-yellow-400 flex items-center justify-center shadow text-xl"
+          title="Home"
         >
-          ⌂
+          🏠
         </button>
       </div>
     </div>
@@ -155,13 +191,13 @@ function Avatar({ session, onClick }) {
     // angemeldet → grüner Punkt mit weissen Initialen
     classes = base + ' bg-green-500 text-white font-bold';
     content = initials || '??';
-    title = `Eingeloggt${initials ? ' (' + initials + ')' : ''}`;
+    title = `Eingeloggt${initials ? ' (' + initials + ')' : ''} – Klick zum Abmelden`;
   } else {
     // nicht angemeldet → roter Punkt, gelbes blinkendes Fragezeichen
     classes =
       base + ' bg-red-500 text-yellow-300 font-extrabold blink-avatar';
     content = '?';
-    title = 'Nicht eingeloggt – klicken zum Anmelden';
+    title = 'Nicht eingeloggt – Klick zum Anmelden';
   }
 
   return (
@@ -201,14 +237,12 @@ function StartScreen() {
 }
 
 // ---------- Login ----------
-function LoginForm({ onLoginResult }) {
+function LoginForm({ onLoginResult, onLoginFailed }) {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError('');
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
@@ -217,12 +251,13 @@ function LoginForm({ onLoginResult }) {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        throw new Error(data.error || 'Login fehlgeschlagen');
+        // ungültige Daten → Login schliessen, kein User
+        onLoginFailed && onLoginFailed();
+        return;
       }
-      // Backend liefert: token/needChange, iduser, role, initials
       onLoginResult(data);
     } catch (err) {
-      setError(err.message);
+      onLoginFailed && onLoginFailed();
     }
   }
 
@@ -247,7 +282,6 @@ function LoginForm({ onLoginResult }) {
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-      {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
       <button
         type="submit"
         className="w-full bg-yellow-300 hover:bg-yellow-400 rounded py-2 font-semibold shadow"
@@ -541,6 +575,179 @@ function LabeledInput({ label, value, onChange }) {
         onChange={(e) => onChange(e.target.value)}
       />
     </div>
+  );
+}
+
+// ---------- Admin-User-Datenbank ----------
+function AdminUserDb({ session }) {
+  const [users, setUsers] = useState(null);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setStatus('Lade Benutzer…');
+      setError('');
+      try {
+        const res = await fetch('/api/admin/users');
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || 'Fehler beim Laden');
+        }
+        if (!cancelled) {
+          setUsers(data.users);
+          setStatus('');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e.message);
+          setStatus('');
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function updateField(iduser, field, value) {
+    setUsers((prev) =>
+      prev.map((u) => (u.iduser === iduser ? { ...u, [field]: value } : u))
+    );
+  }
+
+  async function handleSaveRow(u) {
+    setStatus('Speichere ' + u.iduser + ' …');
+    setError('');
+    try {
+      const res = await fetch('/api/admin/user/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ iduser: u.iduser, data: u })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Fehler beim Speichern');
+      }
+      setStatus('Gespeichert.');
+      setTimeout(() => setStatus(''), 1500);
+    } catch (e) {
+      setError(e.message);
+      setStatus('');
+    }
+  }
+
+  if (!users) {
+    return (
+      <div className="max-w-5xl mx-auto mt-6 bg-white rounded-xl shadow p-4 border border-gray-200 text-sm">
+        {error ? (
+          <div className="text-red-600">{error}</div>
+        ) : (
+          <div className="text-gray-600">{status || 'Lade Benutzer…'}</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto mt-6 bg-white rounded-xl shadow p-4 border border-gray-200 text-xs">
+      <h2 className="text-lg font-bold mb-3">Userdatenbank (Admin)</h2>
+      {error && <div className="text-red-600 mb-2">{error}</div>}
+      {status && !error && (
+        <div className="text-green-700 mb-2">{status}</div>
+      )}
+
+      <div className="overflow-auto max-h-[420px] border border-gray-200 rounded">
+        <table className="min-w-full border-collapse">
+          <thead className="bg-yellow-100">
+            <tr>
+              <Th>ID</Th>
+              <Th>Vorname</Th>
+              <Th>Nachname</Th>
+              <Th>Benutzer</Th>
+              <Th>E-Mail</Th>
+              <Th>Rolle</Th>
+              <Th>Ort</Th>
+              <Th>Funktion</Th>
+              <Th>Aktion</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.iduser} className="odd:bg-yellow-50 even:bg-white">
+                <Td>{u.iduser}</Td>
+                <TdInput
+                  value={u.vorname || ''}
+                  onChange={(v) => updateField(u.iduser, 'vorname', v)}
+                />
+                <TdInput
+                  value={u.nachname || ''}
+                  onChange={(v) => updateField(u.iduser, 'nachname', v)}
+                />
+                <TdInput
+                  value={u.benutzer || ''}
+                  onChange={(v) => updateField(u.iduser, 'benutzer', v)}
+                />
+                <TdInput
+                  value={u.email || ''}
+                  onChange={(v) => updateField(u.iduser, 'email', v)}
+                />
+                <TdInput
+                  value={u.rolle || ''}
+                  onChange={(v) => updateField(u.iduser, 'rolle', v)}
+                />
+                <TdInput
+                  value={u.ort || ''}
+                  onChange={(v) => updateField(u.iduser, 'ort', v)}
+                />
+                <TdInput
+                  value={u.funktion || ''}
+                  onChange={(v) => updateField(u.iduser, 'funktion', v)}
+                />
+                <Td>
+                  <button
+                    onClick={() => handleSaveRow(u)}
+                    className="px-2 py-1 bg-yellow-300 hover:bg-yellow-400 rounded shadow"
+                  >
+                    Speichern
+                  </button>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Th({ children }) {
+  return (
+    <th className="px-2 py-1 border border-gray-200 text-left font-semibold">
+      {children}
+    </th>
+  );
+}
+
+function Td({ children }) {
+  return (
+    <td className="px-2 py-1 border border-gray-200 align-middle">
+      {children}
+    </td>
+  );
+}
+
+function TdInput({ value, onChange }) {
+  return (
+    <td className="px-1 py-1 border border-gray-200">
+      <input
+        className="w-full border rounded px-1 py-[2px]"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </td>
   );
 }
 
