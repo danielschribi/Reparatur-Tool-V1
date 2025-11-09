@@ -1,17 +1,12 @@
-/* Zusätzliche Helfer */
+/* Zusätzliche Helfer für Blinken */
 
-/* allgemeines Blinken (falls du es noch anderswo brauchst) */
-.blink {
-  animation: blink 1s step-start 0s infinite;
+@keyframes avatarBlink {
+  0% { opacity: 1; }
+  50% { opacity: 0.2; }
+  100% { opacity: 1; }
 }
 
-/* Avatar-Blinken im 1-Sekunden-Rhythmus */
+/* Roter Avatarpunkt blinkt */
 .blink-avatar {
-  animation: blink 1s step-start 0s infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0.2;
-  }
+  animation: avatarBlink 1s step-start 0s infinite;
 }
