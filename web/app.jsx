@@ -3,8 +3,9 @@ const { useState, useEffect, useMemo } = React;
 
 function App() {
   const [session, setSession] = useState(null); // { iduser, role, token, initials }
-  const [view, setView] = useState('home'); // home | login | changePassword | user | userdb | roles | meldung
+  const [view, setView] = useState('home'); // home | login | changePassword | user | userdb | roles | register | meldung
   const [now, setNow] = useState(new Date());
+  const [loginKey, setLoginKey] = useState(0); // sorgt für leeres Login-Form
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -16,6 +17,13 @@ function App() {
     minute: '2-digit'
   });
   const dateStr = now.toLocaleDateString('de-CH');
+
+  function openLoginBlank() {
+    // immer: ausgeloggt + leeres Loginfenster
+    setSession(null);
+    setView('login');
+    setLoginKey((k) => k + 1);
+  }
 
   function handleLoginResult(r) {
     // initials kommen vom Backend: erster Buchstabe Vorname + erster Nachname
@@ -42,18 +50,9 @@ function App() {
     }
   }
 
-  function handleLogoutToLogin() {
-    // Avatar-Klick wenn eingeloggt → abmelden + Login anzeigen
-    setSession(null);
-    setView('login');
-  }
-
   function handleAvatarClick() {
-    if (session) {
-      handleLogoutToLogin();
-    } else {
-      setView('login');
-    }
+    // egal ob eingeloggt oder nicht → immer Logout + leeres Loginfenster
+    openLoginBlank();
   }
 
   function handleLogoutToHome() {
@@ -67,6 +66,12 @@ function App() {
     setView('home');
   }
 
+  function openRegister() {
+    // User-Erfassungsmaske
+    setSession(null);
+    setView('register');
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-neutral-50 text-gray-800">
       <Header
@@ -74,20 +79,21 @@ function App() {
         dateStr={dateStr}
         onHome={() => setView('home')}
         onNewMeldung={() =>
-          session ? setView('meldung') : setView('login')
+          session ? setView('meldung') : openLoginBlank()
         }
         session={session}
         onAvatarClick={handleAvatarClick}
         onAdminUsers={() =>
           session && session.role === 'admin'
             ? setView('userdb')
-            : setView('login')
+            : openLoginBlank()
         }
         onAdminRoles={() =>
           session && session.role === 'admin'
             ? setView('roles')
-            : setView('login')
+            : openLoginBlank()
         }
+        onRegister={openRegister}
       />
 
       <main className="flex-1 p-4">
@@ -95,6 +101,7 @@ function App() {
 
         {view === 'login' && (
           <LoginForm
+            key={loginKey}
             onLoginResult={handleLoginResult}
             onLoginFailed={handleLoginFailed}
           />
@@ -116,17 +123,22 @@ function App() {
         )}
 
         {view === 'userdb' && session && session.role === 'admin' && (
-          <AdminUserDb session={session} />
+          <AdminUserDb />
         )}
 
         {view === 'roles' && session && session.role === 'admin' && (
           <AdminRoles />
         )}
 
+        {view === 'register' && <RegisterForm onDone={() => setView('home')} />}
+
         {view === 'meldung' && session && <NewMeldung />}
 
         {!session &&
-          (view === 'user' || view === 'userdb' || view === 'roles' || view === 'meldung') && (
+          (view === 'user' ||
+            view === 'userdb' ||
+            view === 'roles' ||
+            view === 'meldung') && (
             <div className="text-center text-sm text-red-600">
               Bitte zuerst anmelden.
             </div>
@@ -145,14 +157,17 @@ function Header({
   session,
   onAvatarClick,
   onAdminUsers,
-  onAdminRoles
+  onAdminRoles,
+  onRegister
 }) {
+  const isAdmin = !!session && session.role === 'admin';
+
   return (
     <div className="relative h-16 bg-yellow-300 shadow flex items-center px-3">
-      {/* Links: Avatar + Admin-Menüs */}
+      {/* Links: Avatar + Menüs */}
       <div className="flex items-center gap-2">
         <Avatar session={session} onClick={onAvatarClick} />
-        {session && session.role === 'admin' && (
+        {isAdmin ? (
           <>
             <button
               onClick={onAdminUsers}
@@ -167,6 +182,16 @@ function Header({
               Rolle
             </button>
           </>
+        ) : (
+          // ausgeloggt → "Ich will mitmachen"
+          !session && (
+            <button
+              onClick={onRegister}
+              className="px-3 py-1 bg-yellow-200 hover:bg-yellow-400 rounded-2xl shadow text-sm"
+            >
+              Ich will mitmachen
+            </button>
+          )
         )}
       </div>
 
@@ -196,7 +221,7 @@ function Header({
   );
 }
 
-// ---------- Avatar-Logik ----------
+// ---------- Avatar ----------
 function Avatar({ session, onClick }) {
   const loggedIn = !!session;
   const initials = (session && session.initials) || '';
@@ -206,12 +231,12 @@ function Avatar({ session, onClick }) {
 
   let classes, content, title;
   if (loggedIn) {
-    // angemeldet → grüner Punkt mit weissen Initialen (Vorname/Nachname)
+    // angemeldet → grüner Punkt mit weissen Initialen
     classes = base + ' bg-green-500 text-white font-bold';
     content = initials || '??';
     title = `Eingeloggt${initials ? ' (' + initials + ')' : ''} – Klick zum Abmelden`;
   } else {
-    // nicht angemeldet → roter Punkt, gelbes blinkendes Fragezeichen
+    // nicht angemeldet → roter, blinkender Punkt mit gelbem ?
     classes =
       base + ' bg-red-500 text-yellow-300 font-extrabold blink-avatar';
     content = '?';
@@ -273,7 +298,7 @@ function LoginForm({ onLoginResult, onLoginFailed }) {
         return;
       }
       onLoginResult(data);
-    } catch (err) {
+    } catch {
       onLoginFailed && onLoginFailed();
     }
   }
@@ -596,7 +621,7 @@ function LabeledInput({ label, value, onChange }) {
 }
 
 // ---------- Admin-User-Datenbank (inkl. Passwort) ----------
-function AdminUserDb({ session }) {
+function AdminUserDb() {
   const [users, setUsers] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -869,6 +894,204 @@ function AdminRoles() {
         </table>
       </div>
     </div>
+  );
+}
+
+// ---------- Register-Form: „Ich will mitmachen“ ----------
+function RegisterForm({ onDone }) {
+  const [form, setForm] = useState({
+    vorname: '',
+    nachname: '',
+    benutzer: '',
+    email: '',
+    handy: '',
+    strasse: '',
+    plz: '',
+    ort: '',
+    beruf: '',
+    arbeitsort: '',
+    funktion: ''
+  });
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
+
+  const requiredFields = [
+    'vorname',
+    'nachname',
+    'benutzer',
+    'email',
+    'handy',
+    'strasse',
+    'plz',
+    'ort'
+  ];
+
+  const canSubmit = requiredFields.every(
+    (f) => (form[f] || '').trim().length > 0
+  );
+
+  function updateField(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setStatus('Sende Daten…');
+    setError('');
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Fehler bei der Anmeldung');
+      }
+      setSent(true);
+      setStatus('');
+      // nach kurzer Zeit zurück zur Startseite
+      setTimeout(onDone, 1500);
+    } catch (e) {
+      setError(e.message);
+      setStatus('');
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="max-w-lg mx-auto mt-6 bg-white rounded-xl shadow p-6 border border-gray-200 text-sm">
+        <h2 className="text-lg font-bold mb-2">Vielen Dank!</h2>
+        <p>
+          Deine Daten wurden übermittelt. Die verantwortliche Person erhält eine
+          E-Mail mit deinem Zugangscode.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="max-w-lg mx-auto mt-6 bg-white rounded-xl shadow p-6 border border-gray-200 text-sm"
+    >
+      <h2 className="text-lg font-bold mb-4">User erfassen</h2>
+
+      <div className="grid grid-cols-2 gap-3">
+        {/* ID-User (fixer Text, nicht editierbar) */}
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">ID-User</label>
+          <input
+            className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
+            value="wird automatisch vergeben"
+            disabled
+          />
+        </div>
+
+        {/* Rolle = user, nicht änderbar */}
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Rolle</label>
+          <input
+            className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
+            value="user"
+            disabled
+          />
+        </div>
+
+        {/* Passwort-Feld: schwarze Box, gesperrt */}
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Passwort</label>
+          <input
+            className="w-full border rounded px-2 py-1 text-xs bg-black text-black"
+            value="****"
+            disabled
+          />
+          <p className="text-[10px] text-gray-500 mt-1">
+            Das Passwort (vierstellige Zahl) wird automatisch generiert und nicht angezeigt.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <LabeledInput
+          label="Vorname"
+          value={form.vorname}
+          onChange={(v) => updateField('vorname', v)}
+        />
+        <LabeledInput
+          label="Nachname"
+          value={form.nachname}
+          onChange={(v) => updateField('nachname', v)}
+        />
+        <LabeledInput
+          label="Benutzername"
+          value={form.benutzer}
+          onChange={(v) => updateField('benutzer', v)}
+        />
+        <LabeledInput
+          label="E-Mail"
+          value={form.email}
+          onChange={(v) => updateField('email', v)}
+        />
+        <LabeledInput
+          label="Handy"
+          value={form.handy}
+          onChange={(v) => updateField('handy', v)}
+        />
+        <LabeledInput
+          label="Strasse"
+          value={form.strasse}
+          onChange={(v) => updateField('strasse', v)}
+        />
+        <LabeledInput
+          label="PLZ"
+          value={form.plz}
+          onChange={(v) => updateField('plz', v)}
+        />
+        <LabeledInput
+          label="Ort"
+          value={form.ort}
+          onChange={(v) => updateField('ort', v)}
+        />
+        <LabeledInput
+          label="Beruf"
+          value={form.beruf}
+          onChange={(v) => updateField('beruf', v)}
+        />
+        <LabeledInput
+          label="Arbeitsort"
+          value={form.arbeitsort}
+          onChange={(v) => updateField('arbeitsort', v)}
+        />
+        <LabeledInput
+          label="Funktion"
+          value={form.funktion}
+          onChange={(v) => updateField('funktion', v)}
+        />
+      </div>
+
+      {error && <div className="text-red-600 text-xs mt-3">{error}</div>}
+      {status && !error && (
+        <div className="text-gray-700 text-xs mt-3">{status}</div>
+      )}
+
+      <div className="mt-4 text-right">
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className={
+            'px-4 py-2 rounded shadow font-semibold ' +
+            (canSubmit
+              ? 'bg-yellow-300 hover:bg-yellow-400'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed')
+          }
+        >
+          Absenden
+        </button>
+      </div>
+    </form>
   );
 }
 
