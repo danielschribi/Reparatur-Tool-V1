@@ -8,7 +8,6 @@ const { google } = require('googleapis');
 
 const { login, changePassword, registerUser } = require('./logic.user');
 const { sendWelcomeEmail } = require('./mailer');
-const { htmlToJpeg } = require('./imagegen');
 const { checkAccess } = require('./ownerCheck');
 const { readAllUsers, updateUserById } = require('./sheets');
 
@@ -168,7 +167,7 @@ app.post('/api/user/save', async (req, res) => {
 app.get('/api/admin/users', async (req, res) => {
   try {
     const users = await readAllUsers();
-    // Hier NICHT passwort entfernen – Admin soll es sehen/bearbeiten können
+    // Admin sieht auch das Passwort
     res.json({ users });
   } catch (e) {
     res
@@ -214,36 +213,54 @@ app.post('/api/admin/user/save', async (req, res) => {
   }
 });
 
-// ---------- API: Registrierung ----------
+// ---------- API: Registrierung (ohne JPG, mit Mail an alle Admins) ----------
 app.post('/api/register', async (req, res) => {
   try {
     const payload = req.body || {};
 
-    // 1) User in Sheets anlegen
+    // 1) User in Sheets anlegen (ID & 4-stelliger Code / Passwort)
     const result = await registerUser(payload); // { iduser, code }
 
-    // 2) HTML -> JPEG (Maske)
-    const html = renderWelcomeHTML(payload, result.iduser, result.code);
-    const jpeg = await htmlToJpeg({ html });
-    const attach = [
-      {
-        filename: `Anmeldung-${result.iduser}.jpg`,
-        mimeType: 'image/jpeg',
-        data: jpeg.toString('base64')
+    // 2) Alle Admins aus der db-user lesen
+    const users = await readAllUsers();
+    const admins = users.filter(
+      (u) =>
+        (u.rolle || '').toString().toLowerCase() === 'admin' &&
+        u.email &&
+        String(u.email).includes('@')
+    );
+
+    // 3) Betreff & Mail-Text aufbauen
+    const subject =
+      `Ok du ${payload.vorname} ${payload.nachname} ` +
+      `mit der Handynummer ${payload.handy} ` +
+      `bist dabei als ${payload.benutzer} ` +
+      `und dein erstes Passwort ist ${result.code} ` +
+      `logge dich bitte ein und erstelle ein neues Passwort.`;
+
+    const html = buildAdminRegistrationMailHtml(payload, result);
+
+    // 4) Mail an alle Admins senden (oder Fallback an dich selbst)
+    if (admins.length === 0) {
+      await sendWelcomeEmail({
+        to: 'daniel.schreiber@hispeed.ch',
+        subject,
+        html
+      });
+    } else {
+      for (const admin of admins) {
+        await sendWelcomeEmail({
+          to: admin.email,
+          subject,
+          html
+        });
       }
-    ];
+    }
 
-    // 3) E-Mail an dich
-    const subject = `${payload.vorname} ${payload.nachname} – Herzlich Willkommen dein Code ist ${result.code}`;
-    await sendWelcomeEmail({
-      to: 'daniel.schreiber@hispeed.ch',
-      subject,
-      html: `<p>Neue Anmeldung ${result.iduser}</p>`,
-      attachments: attach
-    });
-
+    // 5) Antwort an Frontend
     res.json({ ok: true, iduser: result.iduser });
   } catch (e) {
+    console.error('Fehler bei /api/register:', e);
     res
       .status(400)
       .json({ error: e.message || 'Fehler bei der Registrierung' });
@@ -278,42 +295,59 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ---------- Helper: HTML für das Registrations-JPG ----------
-function renderWelcomeHTML(u, iduser, code) {
+// ---------- Helper: Mail-HTML für Admin-Benachrichtigung ----------
+function buildAdminRegistrationMailHtml(u, result) {
+  const rows = [
+    ['ID-User', result.iduser],
+    ['Vorname', u.vorname],
+    ['Nachname', u.nachname],
+    ['Benutzername', u.benutzer],
+    ['E-Mail', u.email],
+    ['Handy', u.handy],
+    ['Strasse', u.strasse],
+    ['PLZ', u.plz],
+    ['Ort', u.ort],
+    ['Beruf', u.beruf],
+    ['Arbeitsort', u.arbeitsort],
+    ['Funktion', u.funktion],
+    ['Rolle', 'user'],
+    ['Erstes Passwort', result.code]
+  ];
+
+  const rowsHtml = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:4px 8px;border:1px solid #ddd;"><b>${escapeHtml(
+          label
+        )}</b></td><td style="padding:4px 8px;border:1px solid #ddd;">${escapeHtml(
+          value
+        )}</td></tr>`
+    )
+    .join('');
+
   return `<!doctype html>
-<html><head><meta charset="utf-8"><style>
-  body{font-family:Arial,Helvetica,sans-serif;padding:24px}
-  h1{margin:0 0 8px 0}
-  table{border-collapse:collapse;width:100%}
-  td{border:1px solid #ddd;padding:6px;font-size:14px}
-  .code{font-size:24px;font-weight:bold;color:#222}
-</style></head><body>
-  <h1>Neue Anmeldung</h1>
-  <p><b>ID:</b> ${iduser}</p>
-  <table>
-    <tr><td>Vorname</td><td>${escapeHtml(u.vorname)}</td></tr>
-    <tr><td>Nachname</td><td>${escapeHtml(u.nachname)}</td></tr>
-    <tr><td>Benutzername</td><td>${escapeHtml(u.benutzer)}</td></tr>
-    <tr><td>Strasse</td><td>${escapeHtml(u.strasse)}</td></tr>
-    <tr><td>PLZ</td><td>${escapeHtml(u.plz)}</td></tr>
-    <tr><td>Ort</td><td>${escapeHtml(u.ort)}</td></tr>
-    <tr><td>E-Mail</td><td>${escapeHtml(u.email)}</td></tr>
-    <tr><td>Handy</td><td>${escapeHtml(u.handy)}</td></tr>
-    <tr><td>Beruf</td><td>${escapeHtml(u.beruf)}</td></tr>
-    <tr><td>Arbeitsort</td><td>${escapeHtml(u.arbeitsort)}</td></tr>
-    <tr><td>Funktion</td><td>${escapeHtml(u.funktion)}</td></tr>
-    <tr><td>Start-Rolle</td><td>user</td></tr>
-  </table>
-  <p class="code">Willkommens-Code: ${escapeHtml(code)}</p>
-</body></html>`;
+<html>
+  <body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">
+    <p>Hallo Admin ich melde mich bei dir an zum mitmachen.</p>
+    <p>Hier meine Angaben:</p>
+    <table style="border-collapse:collapse;border:1px solid #ddd;">
+      ${rowsHtml}
+    </table>
+    <p style="margin-top:16px;">
+      mit freundlichen Grüssen<br/>
+      der Anmeldebot ;-)
+    </p>
+  </body>
+</html>`;
 }
 
-function escapeHtml(s) {
-  return String(s ?? '')
+function escapeHtml(value) {
+  return String(value ?? '')
     .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;/g')
+    .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ---------- SERVER START ----------
