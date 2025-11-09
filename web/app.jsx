@@ -7,7 +7,7 @@ function App() {
   const [now, setNow] = useState(new Date());
   const [loginKey, setLoginKey] = useState(0); // sorgt für leeres Login-Form
 
-  // neu: für "Abbrechen" im Login
+  // für Abbrechen im Login: ursprüngliche Session & View merken
   const [sessionBeforeLogin, setSessionBeforeLogin] = useState(null);
   const [viewBeforeLogin, setViewBeforeLogin] = useState('home');
 
@@ -32,7 +32,6 @@ function App() {
   }
 
   function handleLoginResult(r) {
-    // initials kommen vom Backend: erster Buchstabe Vorname + erster Nachname
     const initials = (r.initials || '').toUpperCase();
 
     if (r.needChange) {
@@ -61,8 +60,8 @@ function App() {
   }
 
   function handleAvatarClick() {
-    // Avatar-Klick: Loginfenster mit leeren Feldern, aktueller User wird "ausgeloggt",
-    // kann aber über "Abbrechen" wiederhergestellt werden.
+    // egal ob eingeloggt oder nicht → Loginfenster mit leeren Feldern
+    // Abbrechen stellt ggf. ursprüngliche Session wieder her
     openLoginBlank();
   }
 
@@ -82,9 +81,13 @@ function App() {
     // Abbrechen: ursprüngliche Session (falls vorhanden) wiederherstellen
     if (sessionBeforeLogin) {
       setSession(sessionBeforeLogin);
+      setView(viewBeforeLogin || 'home');
+    } else {
+      setSession(null);
+      setView('home');
     }
     setSessionBeforeLogin(null);
-    setView(viewBeforeLogin || 'home');
+    setViewBeforeLogin('home');
   }
 
   function openRegister() {
@@ -152,9 +155,7 @@ function App() {
           <AdminRoles />
         )}
 
-        {view === 'register' && (
-          <RegisterForm onDone={() => setView('home')} />
-        )}
+        {view === 'register' && <RegisterForm onDone={() => setView('home')} />}
 
         {view === 'meldung' && session && <NewMeldung />}
 
@@ -258,7 +259,7 @@ function Avatar({ session, onClick }) {
     // angemeldet → grüner Punkt mit weissen Initialen
     classes = base + ' bg-green-500 text-white font-bold';
     content = initials || '??';
-    title = `Eingeloggt${initials ? ' (' + initials + ')' : ''} – Klick zum Abmelden`;
+    title = `Eingeloggt${initials ? ' (' + initials + ')' : ''} – Klick um neu anzumelden`;
   } else {
     // nicht angemeldet → roter, blinkender Punkt mit gelbem ?
     classes =
@@ -348,7 +349,8 @@ function LoginForm({ onLoginResult, onLoginFailed, onCancel }) {
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-      <div className="flex gap-2">
+
+      <div className="flex gap-2 mt-2">
         <button
           type="submit"
           className="flex-1 bg-yellow-300 hover:bg-yellow-400 rounded py-2 font-semibold shadow"
@@ -812,7 +814,7 @@ function AdminRoles() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setStatus('Lade Rollen…');
+      setStatus('Lade Rollen…'),
       setError('');
       try {
         const res = await fetch('/api/admin/users');
@@ -1080,12 +1082,12 @@ function RegisterForm({ onDone }) {
       <h2 className="text-lg font-bold mb-4">User erfassen</h2>
 
       <div className="grid grid-cols-2 gap-3">
-        {/* ID-User (fixer Text, nicht editierbar) */}
+        {/* ID-User (sichtbar, nicht änderbar) */}
         <div>
           <label className="block mb-1 text-xs text-gray-700">ID-User</label>
           <input
-            className="w-full border rounded px-2 py-1 text-xs bg-gray-100"
-            value="wird automatisch vergeben"
+            className="w-full border rounded px-2 py-1 text-xs bg-gray-100 text-gray-700"
+            value={idUser ? idUser : 'wird automatisch vergeben'}
             disabled
           />
         </div>
