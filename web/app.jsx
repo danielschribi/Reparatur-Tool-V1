@@ -31,13 +31,18 @@ function App() {
     setLoginKey((k) => k + 1); // sorgt dafür, dass Felder immer leer sind
   }
 
-  function handleLoginResult(r) {
+    function handleLoginResult(r) {
+    // ID aus der Login-Antwort robust herausziehen
+    const iduser =
+      r.iduser || r.idUser || r.id || r['id-user'];
+
+    // initials kommen vom Backend: erster Buchstabe Vorname + erster Nachname
     const initials = (r.initials || '').toUpperCase();
 
     if (r.needChange) {
       // 4-stelliger Code → Zwang Passwort ändern
       setSession({
-        iduser: r.iduser,
+        iduser,
         role: r.role || 'user',
         token: null,
         initials
@@ -46,18 +51,15 @@ function App() {
     } else {
       // normales Login mit Passwort
       setSession({
-        iduser: r.iduser,
+        iduser,
         role: r.role || 'user',
         token: r.token || null,
         initials
       });
       setView('user');
     }
-
-    // Login abgeschlossen → Zwischenspeicher zurücksetzen
-    setSessionBeforeLogin(null);
-    setViewBeforeLogin('home');
   }
+
 
   function handleAvatarClick() {
     // Avatar-Klick: Loginfenster mit leeren Feldern
