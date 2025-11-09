@@ -60,7 +60,7 @@ function App() {
   }
 
   function handleAvatarClick() {
-    // egal ob eingeloggt oder nicht → Loginfenster mit leeren Feldern
+    // Avatar-Klick: Loginfenster mit leeren Feldern
     // Abbrechen stellt ggf. ursprüngliche Session wieder her
     openLoginBlank();
   }
@@ -814,7 +814,7 @@ function AdminRoles() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setStatus('Lade Rollen…'),
+      setStatus('Lade Rollen…');
       setError('');
       try {
         const res = await fetch('/api/admin/users');
@@ -1001,31 +1001,59 @@ function RegisterForm({ onDone }) {
     }));
   }
 
-  async function handleBenutzerBlur() {
-    const name = (form.benutzer || '').trim();
-    if (!name) return;
+  // Hilfsfunktion: fragt den Server, ob der Benutzername vergeben ist
+  async function isUsernameTaken(name) {
+    const benutzer = (name || '').trim();
+    if (!benutzer) return false;
+
     try {
       const res = await fetch('/api/user/check-username', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ benutzer: name })
+        body: JSON.stringify({ benutzer })
       });
-      if (!res.ok) return; // Endpoint evtl. noch nicht vorhanden → stiller Rückfall
-      const data = await res.json();
-      if (data && data.exists) {
-        setUsernameError('Benutzername ist bereits vergeben.');
-        setForm((prev) => ({ ...prev, benutzer: '' }));
-        setFieldState((prev) => ({ ...prev, benutzer: 'invalid' }));
-        setTimeout(() => setUsernameError(''), 2000);
+      if (!res.ok) {
+        // Endpoint evtl. noch nicht vorhanden → zur Sicherheit NEIN sagen,
+        // damit der Benutzer trotzdem weiterkommt (Prüfung erfolgt später serverseitig)
+        return false;
       }
+      const data = await res.json();
+      return !!data.exists;
     } catch {
-      // Fehler ignorieren, endgültige Prüfung erfolgt beim Absenden
+      // Netzwerkfehler o.ä. → lieber kein Blocker
+      return false;
+    }
+  }
+
+  // beim Verlassen des Benutzer-Feldes
+  async function handleBenutzerBlur() {
+    const name = (form.benutzer || '').trim();
+    if (!name) return;
+
+    const taken = await isUsernameTaken(name);
+    if (taken) {
+      setUsernameError('Benutzername ist bereits vergeben.');
+      setForm((prev) => ({ ...prev, benutzer: '' }));
+      setFieldState((prev) => ({ ...prev, benutzer: 'invalid' }));
+      setTimeout(() => setUsernameError(''), 2000);
     }
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!canSubmit) return;
+
+    // Zusätzliche Kontrolle beim Absenden
+    if (await isUsernameTaken(form.benutzer)) {
+      setUsernameError('Benutzername ist bereits vergeben.');
+      setForm((prev) => ({ ...prev, benutzer: '' }));
+      setFieldState((prev) => ({ ...prev, benutzer: 'invalid' }));
+      setStatus('');
+      setError('');
+      setTimeout(() => setUsernameError(''), 2000);
+      return;
+    }
+
     setStatus('Sende Daten…');
     setError('');
     try {
@@ -1049,6 +1077,7 @@ function RegisterForm({ onDone }) {
     }
   }
 
+  // Bestätigungs-Ansicht nach dem Senden
   if (sent) {
     return (
       <div className="max-w-lg mx-auto mt-6 bg-white rounded-xl shadow p-6 border border-gray-200 text-sm">
@@ -1074,6 +1103,7 @@ function RegisterForm({ onDone }) {
     );
   }
 
+  // Eingabe-Formular
   return (
     <form
       onSubmit={handleSubmit}
