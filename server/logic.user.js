@@ -14,7 +14,7 @@ const SPREADSHEET_ID =
   process.env.DB_SPREADSHEET_ID ||
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 
-const SHEET_NAME = process.env.DB_USER_SHEET_NAME || 'db-user';
+const SHEET_NAME = process.env.DB_USER_SHEET_NAME || 'user';
 
 // ---------- Google Auth (OWNER_OAUTH_TOKENS) ----------
 
