@@ -7,6 +7,10 @@ function App() {
   const [now, setNow] = useState(new Date());
   const [loginKey, setLoginKey] = useState(0); // sorgt für leeres Login-Form
 
+  // neu: für "Abbrechen" im Login
+  const [sessionBeforeLogin, setSessionBeforeLogin] = useState(null);
+  const [viewBeforeLogin, setViewBeforeLogin] = useState('home');
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -19,10 +23,12 @@ function App() {
   const dateStr = now.toLocaleDateString('de-CH');
 
   function openLoginBlank() {
-    // immer: ausgeloggt + leeres Loginfenster
+    // aktuellen Zustand merken, User vorübergehend ausloggen
+    setSessionBeforeLogin(session);
+    setViewBeforeLogin(view);
     setSession(null);
     setView('login');
-    setLoginKey((k) => k + 1);
+    setLoginKey((k) => k + 1); // sorgt dafür, dass Felder immer leer sind
   }
 
   function handleLoginResult(r) {
@@ -48,10 +54,15 @@ function App() {
       });
       setView('user');
     }
+
+    // Login abgeschlossen → Zwischenspeicher zurücksetzen
+    setSessionBeforeLogin(null);
+    setViewBeforeLogin('home');
   }
 
   function handleAvatarClick() {
-    // egal ob eingeloggt oder nicht → immer Logout + leeres Loginfenster
+    // Avatar-Klick: Loginfenster mit leeren Feldern, aktueller User wird "ausgeloggt",
+    // kann aber über "Abbrechen" wiederhergestellt werden.
     openLoginBlank();
   }
 
@@ -62,8 +73,18 @@ function App() {
 
   function handleLoginFailed() {
     // ungültige Daten → Login schliessen, kein User angemeldet
+    setSessionBeforeLogin(null);
     setSession(null);
     setView('home');
+  }
+
+  function handleLoginCancel() {
+    // Abbrechen: ursprüngliche Session (falls vorhanden) wiederherstellen
+    if (sessionBeforeLogin) {
+      setSession(sessionBeforeLogin);
+    }
+    setSessionBeforeLogin(null);
+    setView(viewBeforeLogin || 'home');
   }
 
   function openRegister() {
@@ -104,6 +125,7 @@ function App() {
             key={loginKey}
             onLoginResult={handleLoginResult}
             onLoginFailed={handleLoginFailed}
+            onCancel={handleLoginCancel}
           />
         )}
 
@@ -130,7 +152,9 @@ function App() {
           <AdminRoles />
         )}
 
-        {view === 'register' && <RegisterForm onDone={() => setView('home')} />}
+        {view === 'register' && (
+          <RegisterForm onDone={() => setView('home')} />
+        )}
 
         {view === 'meldung' && session && <NewMeldung />}
 
@@ -280,7 +304,7 @@ function StartScreen() {
 }
 
 // ---------- Login ----------
-function LoginForm({ onLoginResult, onLoginFailed }) {
+function LoginForm({ onLoginResult, onLoginFailed, onCancel }) {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
 
@@ -324,12 +348,21 @@ function LoginForm({ onLoginResult, onLoginFailed }) {
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-      <button
-        type="submit"
-        className="w-full bg-yellow-300 hover:bg-yellow-400 rounded py-2 font-semibold shadow"
-      >
-        Login
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          className="flex-1 bg-yellow-300 hover:bg-yellow-400 rounded py-2 font-semibold shadow"
+        >
+          Login
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 bg-gray-200 hover:bg-gray-300 rounded py-2 text-sm"
+        >
+          Abbrechen
+        </button>
+      </div>
     </form>
   );
 }
@@ -916,6 +949,10 @@ function RegisterForm({ onDone }) {
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
 
+  const [fieldState, setFieldState] = useState({});
+  const [usernameError, setUsernameError] = useState('');
+  const [idUser, setIdUser] = useState('');
+
   const requiredFields = [
     'vorname',
     'nachname',
@@ -931,8 +968,57 @@ function RegisterForm({ onDone }) {
     (f) => (form[f] || '').trim().length > 0
   );
 
+  function validateField(field, value) {
+    const v = (value || '').trim();
+    if (!v) return false;
+    switch (field) {
+      case 'email':
+        return v.includes('@');
+      case 'plz':
+        return /^\d{4}$/.test(v);
+      default:
+        return v.length > 1;
+    }
+  }
+
+  function inputClass(field) {
+    const base = 'w-full border rounded px-2 py-1 text-sm ';
+    const st = fieldState[field];
+    if (!st || st === 'invalid') {
+      return base + 'bg-orange-100';
+    }
+    return base + 'bg-green-100';
+  }
+
   function updateField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
+    const valid = validateField(field, value);
+    setFieldState((prev) => ({
+      ...prev,
+      [field]: valid ? 'valid' : 'invalid'
+    }));
+  }
+
+  async function handleBenutzerBlur() {
+    const name = (form.benutzer || '').trim();
+    if (!name) return;
+    try {
+      const res = await fetch('/api/user/check-username', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ benutzer: name })
+      });
+      if (!res.ok) return; // Endpoint evtl. noch nicht vorhanden → stiller Rückfall
+      const data = await res.json();
+      if (data && data.exists) {
+        setUsernameError('Benutzername ist bereits vergeben.');
+        setForm((prev) => ({ ...prev, benutzer: '' }));
+        setFieldState((prev) => ({ ...prev, benutzer: 'invalid' }));
+        setTimeout(() => setUsernameError(''), 2000);
+      }
+    } catch {
+      // Fehler ignorieren, endgültige Prüfung erfolgt beim Absenden
+    }
   }
 
   async function handleSubmit(e) {
@@ -950,10 +1036,11 @@ function RegisterForm({ onDone }) {
       if (!res.ok || data.error) {
         throw new Error(data.error || 'Fehler bei der Anmeldung');
       }
+      if (data.iduser) {
+        setIdUser(data.iduser); // vom Backend generierte ID anzeigen
+      }
       setSent(true);
       setStatus('');
-      // nach kurzer Zeit zurück zur Startseite
-      setTimeout(onDone, 1500);
     } catch (e) {
       setError(e.message);
       setStatus('');
@@ -968,6 +1055,19 @@ function RegisterForm({ onDone }) {
           Deine Daten wurden übermittelt. Die verantwortliche Person erhält eine
           E-Mail mit deinem Zugangscode.
         </p>
+        {idUser && (
+          <p className="mt-3">
+            <b>Deine User-ID:</b> {idUser}
+          </p>
+        )}
+        <div className="mt-4 text-right">
+          <button
+            onClick={onDone}
+            className="px-4 py-2 rounded shadow font-semibold bg-yellow-300 hover:bg-yellow-400"
+          >
+            OK
+          </button>
+        </div>
       </div>
     );
   }
@@ -999,77 +1099,103 @@ function RegisterForm({ onDone }) {
             disabled
           />
         </div>
-
-        {/* Passwort-Feld: schwarze Box, gesperrt */}
-        <div>
-          <label className="block mb-1 text-xs text-gray-700">Passwort</label>
-          <input
-            className="w-full border rounded px-2 py-1 text-xs bg-black text-black"
-            value="****"
-            disabled
-          />
-          <p className="text-[10px] text-gray-500 mt-1">
-            Das Passwort (vierstellige Zahl) wird automatisch generiert und nicht angezeigt.
-          </p>
-        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 mt-4">
-        <LabeledInput
-          label="Vorname"
-          value={form.vorname}
-          onChange={(v) => updateField('vorname', v)}
-        />
-        <LabeledInput
-          label="Nachname"
-          value={form.nachname}
-          onChange={(v) => updateField('nachname', v)}
-        />
-        <LabeledInput
-          label="Benutzername"
-          value={form.benutzer}
-          onChange={(v) => updateField('benutzer', v)}
-        />
-        <LabeledInput
-          label="E-Mail"
-          value={form.email}
-          onChange={(v) => updateField('email', v)}
-        />
-        <LabeledInput
-          label="Handy"
-          value={form.handy}
-          onChange={(v) => updateField('handy', v)}
-        />
-        <LabeledInput
-          label="Strasse"
-          value={form.strasse}
-          onChange={(v) => updateField('strasse', v)}
-        />
-        <LabeledInput
-          label="PLZ"
-          value={form.plz}
-          onChange={(v) => updateField('plz', v)}
-        />
-        <LabeledInput
-          label="Ort"
-          value={form.ort}
-          onChange={(v) => updateField('ort', v)}
-        />
-        <LabeledInput
-          label="Beruf"
-          value={form.beruf}
-          onChange={(v) => updateField('beruf', v)}
-        />
-        <LabeledInput
-          label="Arbeitsort"
-          value={form.arbeitsort}
-          onChange={(v) => updateField('arbeitsort', v)}
-        />
-        <LabeledInput
-          label="Funktion"
-          value={form.funktion}
-          onChange={(v) => updateField('funktion', v)}
-        />
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Vorname</label>
+          <input
+            className={inputClass('vorname')}
+            value={form.vorname}
+            onChange={(e) => updateField('vorname', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Nachname</label>
+          <input
+            className={inputClass('nachname')}
+            value={form.nachname}
+            onChange={(e) => updateField('nachname', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Benutzername</label>
+          <input
+            className={inputClass('benutzer')}
+            value={form.benutzer}
+            onChange={(e) => updateField('benutzer', e.target.value)}
+            onBlur={handleBenutzerBlur}
+          />
+          {usernameError && (
+            <div className="text-red-600 text-[11px] mt-1">
+              {usernameError}
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">E-Mail</label>
+          <input
+            className={inputClass('email')}
+            value={form.email}
+            onChange={(e) => updateField('email', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Handy</label>
+          <input
+            className={inputClass('handy')}
+            value={form.handy}
+            onChange={(e) => updateField('handy', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Strasse</label>
+          <input
+            className={inputClass('strasse')}
+            value={form.strasse}
+            onChange={(e) => updateField('strasse', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">PLZ</label>
+          <input
+            className={inputClass('plz')}
+            value={form.plz}
+            onChange={(e) => updateField('plz', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Ort</label>
+          <input
+            className={inputClass('ort')}
+            value={form.ort}
+            onChange={(e) => updateField('ort', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Beruf</label>
+          <input
+            className={inputClass('beruf')}
+            value={form.beruf}
+            onChange={(e) => updateField('beruf', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Arbeitsort</label>
+          <input
+            className={inputClass('arbeitsort')}
+            value={form.arbeitsort}
+            onChange={(e) => updateField('arbeitsort', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs text-gray-700">Funktion</label>
+          <input
+            className={inputClass('funktion')}
+            value={form.funktion}
+            onChange={(e) => updateField('funktion', e.target.value)}
+          />
+        </div>
       </div>
 
       {error && <div className="text-red-600 text-xs mt-3">{error}</div>}
