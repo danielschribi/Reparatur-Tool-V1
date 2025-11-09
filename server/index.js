@@ -6,10 +6,17 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
 
-const { login, changePassword, registerUser } = require('./logic.user');
+const {
+  login,
+  changePassword,
+  registerUser,
+  getAllUsers,
+  getUserById,
+  updateUserPartial,
+  usernameExists
+} = require('./logic.user');
 const { sendWelcomeEmail } = require('./mailer');
 const { checkAccess } = require('./ownerCheck');
-const { readAllUsers, updateUserById } = require('./sheets');
 
 const app = express();
 
@@ -107,14 +114,29 @@ app.post('/api/change-password', async (req, res) => {
   }
 });
 
+// ---------- API: Benutzername prüfen (für Register-Form) ----------
+app.post('/api/user/check-username', async (req, res) => {
+  try {
+    const { benutzer } = req.body || {};
+    if (!benutzer) {
+      return res.json({ exists: false });
+    }
+    const exists = await usernameExists(benutzer);
+    res.json({ exists });
+  } catch (e) {
+    res
+      .status(500)
+      .json({ error: e.message || 'Fehler bei der Benutzerprüfung' });
+  }
+});
+
 // ---------- API: User-Daten holen (für eigenes Profil) ----------
 app.post('/api/user/get', async (req, res) => {
   try {
     const { iduser } = req.body || {};
     if (!iduser) return res.status(400).json({ error: 'iduser erforderlich' });
 
-    const users = await readAllUsers();
-    const u = users.find((x) => x.iduser === iduser);
+    const u = await getUserById(iduser);
     if (!u) return res.status(404).json({ error: 'User nicht gefunden' });
 
     const { passwort, ...safe } = u;
@@ -153,7 +175,7 @@ app.post('/api/user/save', async (req, res) => {
       }
     });
 
-    const updated = await updateUserById(iduser, partial);
+    const updated = await updateUserPartial(iduser, partial);
     const { passwort, ...safe } = updated;
     res.json({ user: safe });
   } catch (e) {
@@ -166,7 +188,7 @@ app.post('/api/user/save', async (req, res) => {
 // ---------- API: Admin – alle User lesen (inkl. Passwort & Rolle) ----------
 app.get('/api/admin/users', async (req, res) => {
   try {
-    const users = await readAllUsers();
+    const users = await getAllUsers();
     // Admin sieht auch das Passwort
     res.json({ users });
   } catch (e) {
@@ -203,7 +225,7 @@ app.post('/api/admin/user/save', async (req, res) => {
       }
     });
 
-    const updated = await updateUserById(iduser, partial);
+    const updated = await updateUserPartial(iduser, partial);
     const { passwort, ...safe } = updated;
     res.json({ user: safe });
   } catch (e) {
@@ -222,7 +244,7 @@ app.post('/api/register', async (req, res) => {
     const result = await registerUser(payload); // { iduser, code }
 
     // 2) Alle Admins aus der db-user lesen
-    const users = await readAllUsers();
+    const users = await getAllUsers();
     const admins = users.filter(
       (u) =>
         (u.rolle || '').toString().toLowerCase() === 'admin' &&
